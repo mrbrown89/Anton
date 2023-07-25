@@ -1,0 +1,18 @@
+# file: 01
+# owner: SPACECENTRE\\mattb.da
+# group: SPACECENTRE\\production\040group
+user::rwx
+user:SPACECENTRE\\production\040group:rwx
+group::rwx
+group:SPACECENTRE\\production\040group:rwx
+group:SPACECENTRE\\mattb.da:rwx
+mask::rwx
+other::---
+default:user::rwx
+default:user:SPACECENTRE\\production\040group:rwx
+default:user:SPACECENTRE\\mattb.da:rwx
+default:group::rwx
+default:group:SPACECENTRE\\production\040group:rwx
+default:group:SPACECENTRE\\mattb.da:rwx
+default:mask::rwx
+default:other::---

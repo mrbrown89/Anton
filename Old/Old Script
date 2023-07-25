@@ -1,0 +1,177 @@
+
+		#!/bin/bash
+
+#NSC DR Install Script
+#Installs software and preps ZFS
+
+RED='\033[0;31m'
+NOCOLOUR='\033[0m'
+
+UPDATE() {
+        echo "Running base updates..."
+        apt-get update > /dev/null 2>&1
+    apt-get upgrade -y > /dev/null 2>&1
+
+}
+
+
+BASICSOFTWARE() {
+    apt-get install screen wget curl acl -y > /dev/null 2>&1
+
+
+}
+
+ZFSDEBIAN() {
+    echo "Adding ZFS Repo"
+        #codename=$(lsb_release -cs);echo "deb http://deb.debian.org/debian $codename-backports main contrib non-free"|sudo tee -a /etc/apt/sources.list
+    echo "deb http://deb.debian.org/debian bullseye-backports main contrib non-free" | tee -a /etc/apt/sources.list > /dev/null 2>&1
+    apt-get update -y > /dev/null 2>&1
+    echo "Installing kernal headers"
+        apt-get install linux-headers-amd64 -y > /dev/null 2>&1
+    echo "Installing ZFS. This will take a few mins"
+    sleep 3
+    apt-get install -t bullseye-backports zfsutils-linux -y
+    echo ' '
+    echo ' '
+    echo ' '
+    echo -e '\e[34m ZFS installed. Installing some ZFS extras.\e[0m'
+    echo ' '
+    echo ' '
+    echo ' '
+    apt-get install zfs-zed zfsnap -y > /dev/null 2>&1
+    echo "Building pool01"
+    zpool create pool01 raidz2 /dev/sdc /dev/sdd /dev/sde /dev/sdg #Put disks in /dev/sda /dev/sdab /dev/sde /dev/sdf
+    echo "Building metadata pool"
+    zpool add pool01 -f special  /dev/sdf #Put disks in here /dev/sdc /dev/sdb
+    echo "Building dataset NSCC"
+    zfs create pool01/NSCC
+    echo "pool01 built, see output below..."
+    echo "Building dataset vmBackup with 10TB quota"
+    zfs create pool01/vmBackup
+    zfs set quota=10T pool01/vmBackup
+    mkdir /pool01/NSCC/01
+    sleep 1
+    zpool list -v pool01
+    echo ' '
+}
+
+
+SAMBA() {
+
+#NOTE - if running this is test mode please change the netbios name in the below config
+
+    echo -e '\e[34m Installing Samba...\e[0m'
+        apt-get install winbind libpam-winbind libnss-winbind krb5-config samba-dsdb-modules samba-vfs-modules samba -y > /dev/null 2>&1
+        mv /etc/samba/smb.conf /etc/samba/smb.conf.Backup
+    echo "Building smb.conf file"
+    echo "[global]" > /etc/samba/smb.conf
+    echo "kerberos method = secrets and keytab" >> /etc/samba/smb.conf
+    echo "realm = SPACECENTRE.LOCAL" >> /etc/samba/smb.conf
+    echo "workgroup = SPACECENTRE" >> /etc/samba/smb.conf
+    echo "netbios name = nsccdr" >> /etc/samba/smb.conf
+    echo "security = ads" >> /etc/samba/smb.conf
+    echo "template shell = /bin/bash" >> /etc/samba/smb.conf
+    echo "kerberos method = secrets only" >> /etc/samba/smb.conf
+    echo "winbind use default domain = true" >> /etc/samba/smb.conf
+    echo "idmap config * : rangesize = 1000000" >> /etc/samba/smb.conf
+    echo "idmap config * : range = 1000000-19999999" >> /etc/samba/smb.conf
+    echo "idmap config * : backend = autorid" >> /etc/samba/smb.conf
+    echo "vfs objects = fruit streams_xattr" >> /etc/samba/smb.conf
+    echo "fruit:metadata = stream" >> /etc/samba/smb.conf
+    echo "fruit:model = MacSamba" >> /etc/samba/smb.conf
+    echo "fruit:posix_rename = yes" >> /etc/samba/smb.conf
+    echo "fruit:veto_appledouble = no" >> /etc/samba/smb.conf
+    echo "fruit:nfs_aces = no" >> /etc/samba/smb.conf
+    echo "fruit:wipe_intentionally_left_blank_rfork = yes" >> /etc/samba/smb.conf
+    echo "fruit:delete_empty_adfiles = yes" >> /etc/samba/smb.conf
+    echo " " >> /etc/samba/smb.conf
+    echo " " >> /etc/samba/smb.conf
+    echo " " >> /etc/samba/smb.conf
+    echo " " >> /etc/samba/smb.conf
+    echo " " >> /etc/samba/smb.conf
+    echo "[01]" >> /etc/samba/smb.conf
+    echo "path = /pool01/NSCC/01" >> /etc/samba/smb.conf
+    echo "read only = no" >> /etc/samba/smb.conf
+    echo "guest only = no" >> /etc/samba/smb.conf
+    echo "guest ok = no" >> /etc/samba/smb.conf
+    echo "printable = no" >> /etc/samba/smb.conf
+    echo "browseable = yes" >> /etc/samba/smb.conf
+    echo "force create mode = 0666" >> /etc/samba/smb.conf
+    echo "force directory mode = 0666" >> /etc/samba/smb.conf
+
+
+    sed -i 's/passwd:         files systemd/passwd:         files systemd winbind/' /etc/nsswitch.conf
+    sed -i 's/group:          files systemd/group:          files systemd winbind/' /etc/nsswitch.conf
+    systemctl enable winbind > /dev/null 2>&1
+    echo "Joining the domain SPACECENTRE.LOCAL"
+    net ads join -U mattb.da spacecentre.local
+    systemctl restart winbind
+    chown mattb.da:'production group' /pool01/NSCC/01
+    chmod 770 /pool01/NSCC/01
+    systemctl restart smbd
+    echo ' '
+
+}
+
+KVM() {
+    echo -e '\e[34m Installing KVM...\e[0m'
+    echo "This will take awhile!"
+    apt-get install qemu-kvm libvirt-clients libvirt-daemon-system bridge-utils libguestfs-tools genisoimage virtinst libosinfo-bin virt-manager libvirt-daemon -y > /dev/null 2>&1
+
+
+    echo ''
+}
+
+ICINGA() {
+    echo -e '\e[34m Installing Icinga...\e[0m'
+    apt-get install apache2 mariadb-server php libapache2-mod-php php-curl php-gd php-mbstring php-xml php-xmlrpc php-soap php-intl php-zip php-cli php-mysql php-common php-opcache php-pgsql php-gmp php-imagick -y > /dev/null 2>&1
+        sed -i 's/;date.timezone =/date.timezone = Europe/London/' /etc/php/7.4/apache2/php.ini
+        sed -i 's/memory_limit = 128M/memory_limit = 256M/' /etc/php/7.4/apache2/php.ini
+        systemctl restart apache2
+        mysql_secure_installation
+        apt-get install icinga2 monitoring-plugins -y > /dev/null 2>&1
+        echo 'Starting Icinga'
+        systemctl enable icinga2 > /dev/null 2>&1
+        systemctl start icinga2
+        apt-get install icinga2-ido-mysql -y
+        icinga2 feature enable ido-mysql
+        systemctl restart icinga2
+        apt-get install icingaweb2 icingacli -y > /dev/null 2>&1
+        #mysql -u root -p --execute="CREATE DATABASE icingaweb2;GRANT ALL PRIVILEGES ON icingaweb2.* TO icingaweb2@localhost IDENTIFIED BY '$password';"
+}
+
+
+
+
+CLEANUP() {
+        echo "ZFS and Samba installed. Please join the domain and build the ZFS pool"
+
+}
+
+
+MAIN() {
+
+    #read -sp 'Enter DA User: ' DA
+    echo -e '\e[33m
+███╗   ██╗███████╗ ██████╗    ██████╗ ██████╗     ██╗███╗   ██╗███████╗████████╗ █████╗ ██╗     ██╗
+████╗  ██║██╔════╝██╔════╝    ██╔══██╗██╔══██╗    ██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║
+██╔██╗ ██║███████╗██║         ██║  ██║██████╔╝    ██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║
+██║╚██╗██║╚════██║██║         ██║  ██║██╔══██╗    ██║██║╚██╗██║╚════██║   ██║   ██╔══██║██║     ██║
+██║ ╚████║███████║╚██████╗    ██████╔╝██║  ██║    ██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗
+╚═╝  ╚═══╝╚══════╝ ╚═════╝    ╚═════╝ ╚═╝  ╚═╝    ╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝
+\e[0m'
+
+   UPDATE #Working
+   BASICSOFTWARE #Working
+   ZFSDEBIAN #Working
+   SAMBA # Working
+   #KVM
+   #ICINGA NOT WORKING - maybe take this out to do it manually?
+   CLEANUP
+   echo "Now join the domain - don't forget to restart winbind!"
+   echo "And also chmod 770 /pool01/NSCC/01!"
+}
+
+MAIN
+
+#EOF
